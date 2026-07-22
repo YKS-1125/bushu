@@ -1,0 +1,7 @@
+# ── 敏感文件：绝不能上传到 GitHub ──
+# .env 里存着 API key，必须忽略，防止密钥泄露
+.env
+
+# ── Python 运行时产生的垃圾文件 ──
+__pycache__/
+*.pyc

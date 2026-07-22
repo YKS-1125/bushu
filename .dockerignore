@@ -1,0 +1,21 @@
+# 构建镜像时排除这些，保持构建上下文精简、避免把本地大文件塞进镜像
+.git
+.gitignore
+
+# 虚拟环境（几百 MB，绝不能进镜像）
+**/.venv/
+.venv/
+
+# Python 缓存
+**/__pycache__/
+**/*.pyc
+
+# 敏感文件：API key 走平台环境变量注入，不进镜像
+**/.env
+
+# RAG 产物：由 build_index.py 在构建阶段重建，排除本地旧副本
+backend/tfidf.pkl
+backend/chroma_db/
+
+# 压缩包等杂项
+*.rar

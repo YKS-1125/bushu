@@ -1,0 +1,205 @@
+# ============================================================
+#  第 ③b 步：用 Flask 把 AI 对话包装成"网页后端 API"
+#
+#  核心思路：
+#    之前 AI 只能在命令行聊。现在我们开一个"小服务器"，
+#    它一直在后台监听。网页把用户的话用 HTTP 请求发过来，
+#    这个服务器转发给 DeepSeek，再把回答用 HTTP 传回网页。
+#
+#    浏览器(前端)  ──HTTP请求 /chat──▶  Flask(本文件)  ──▶  DeepSeek
+#    浏览器(前端)  ◀──JSON回答─────────  Flask(本文件)  ◀──  DeepSeek
+#
+#  图例：🟢可变 = 可自由修改   🔴固定 = 语法/结构，别动
+# ============================================================
+
+import os                              # 🔴固定
+import time                            # 🔴固定：限流要用"当前时间"算时间窗口
+import pickle                          # 🔴固定：读取第2步保存的"向量化器"tfidf.pkl
+import chromadb                        # 🔴固定：连接第2步建好的向量数据库
+from collections import defaultdict    # 🔴固定：限流用的"带默认值的字典"
+from flask import Flask, request, jsonify, Response, stream_with_context, send_from_directory   # 🔴固定：Flask 核心工具（新增 Response / stream_with_context 用于流式；send_from_directory 用于托管前端页面）
+from flask_cors import CORS            # 🔴固定：解决"跨域"问题（下面术语备注有解释）
+from openai import OpenAI              # 🔴固定
+from dotenv import load_dotenv         # 🔴固定
+
+# 读取 .env 里的 key（和命令行版一样）
+load_dotenv()                          # 🔴固定
+
+# ------------------------------------------------------------
+# 1. 建立连大模型的客户端（和之前完全一样）
+# ------------------------------------------------------------
+client = OpenAI(
+    api_key=os.environ.get("DEEPSEEK_API_KEY"),   # 🟢可变：环境变量名
+    base_url="https://api.deepseek.com",          # 🟢可变：服务商地址
+)
+
+# 人设：整个网站助手的性格由这里决定（🟢可变）
+SYSTEM_PROMPT = "你是林小禾的个人网站助手，友好、简洁地回答访客的问题。林小禾是一名前端 & Python 工程师，擅长 AI Agent、RAG、Prompt 工程。"
+
+# ------------------------------------------------------------
+# 1.5 【RAG 基础设施】加载第2步的成果：向量化器 + 向量数据库
+#     ——这两行只在服务器启动时执行一次，之后每次提问都复用，省时间
+# ------------------------------------------------------------
+HERE = os.path.dirname(os.path.abspath(__file__))       # 🔴固定：本文件所在目录
+
+# (a) 读回第2步用 pickle 存的 TF-IDF 向量化器（必须和建库时是同一个，否则向量对不上）
+with open(os.path.join(HERE, "tfidf.pkl"), "rb") as f:   # 🔴固定
+    vectorizer = pickle.load(f)
+
+# (b) 连接第2步建好的向量库，拿到那张名叫 linxiaohe 的表
+chroma_client = chromadb.PersistentClient(path=os.path.join(HERE, "chroma_db"))  # 🔴固定
+collection = chroma_client.get_collection("linxiaohe")                            # 🔴固定：get=取已存在的
+
+
+# ------------------------------------------------------------
+# 1.6 【★练手★】检索函数：给一句问题，返回最相关的 k 段资料
+#
+#   目标：question(文字) → 向量 → 在 collection 里查最像的 k 段 → 返回文字列表
+#   你需要填两行（提示都写在注释里）：
+# ------------------------------------------------------------
+def search_knowledge(question, k=2):    # 🟢可变：k=返回几段
+    # ① 把“问题文字”变成向量（用同一个 vectorizer，与建库时完全一致）
+    #   • [question] 🔴固定要加方括号：transform 接收的是“一批文本”，哪怕只查一句也得装成列表
+    #   • .toarray() 🔴把稀疏矩阵转成普通数组；.tolist() 🔴转成 Python 列表，chromadb 才认
+    q_vec = vectorizer.transform([question]).toarray().tolist()   # 🔴固定写法
+
+    # ② 拿向量去向量库查最相似的 k 段
+    #   • query_embeddings 🔴传向量（不是文字）；n_results=k 🟢控制返回几段
+    res = collection.query(query_embeddings=q_vec, n_results=k)   # 🔴固定写法
+
+    # ③ 返回 (原文, 编号) 列表 —— 给前端展示“引用来源”做准备
+    docs_with_id = []                            # 🟢新：存 [(原文,编号), ...]
+    for i, doc in enumerate(res["documents"][0]): # 🔴docs[0] 才是那段文字
+        # 🔴关键步骤：给每段知识加编号（如「[1] 常见问答（FAQ） 问：林小禾接私活吗？答：接...」）
+        docs_with_id.append((f"[{i+1}] {doc}", i+1))   # 🟢格式可改：「[{编号}] 原文」
+    return docs_with_id          # 🔴现在返回的不是纯文本列表，而是 (文本,编号) 对
+
+
+# ------------------------------------------------------------
+# 2. 创建 Flask 应用，并允许网页跨域访问
+# ------------------------------------------------------------
+app = Flask(__name__)                  # 🔴固定：创建一个 Web 应用
+CORS(app)                              # 🔴固定：允许别的网页地址来调用（跨域放行）
+
+# 前端页面目录：兼容两种运行结构
+#   · 本地直接跑 backend/app.py：前端在 backend 的同级目录 ../frontend
+#   · 容器里整个项目 COPY 到 /app：前端在 /app/frontend（同样是上一级）
+# 逐个候选路径找到真正包含 index.html 的那个，找不到就用第一个兑底
+_frontend_candidates = [
+    os.path.join(os.path.dirname(HERE), "frontend"),   # .../项目根/frontend
+    os.path.join(HERE, "frontend"),                     # backend/frontend（兑底）
+]
+FRONTEND_DIR = next(
+    (p for p in _frontend_candidates if os.path.exists(os.path.join(p, "index.html"))),
+    _frontend_candidates[0],
+)   # 🟢可变：前端 index.html 所在目录
+
+# ------------------------------------------------------------
+# 2.1 【托管前端】访问根路径 "/" 时，直接把个人网页发回浏览器
+#     这样前后端同源（都在 5000 端口），前端调 "/chat" 免跨域
+# ------------------------------------------------------------
+@app.route("/")                        # 🟢可变：网址 "/"（网站首页）
+def index():
+    return send_from_directory(FRONTEND_DIR, "index.html")   # 🔴固定：把 frontend/index.html 作为首页返回
+
+# ------------------------------------------------------------
+# 2.5 【限流】防止同一个人短时间狂点——刷爆 API = 烧钱
+#     思路：按 IP 记下每次访问的"时间戳"，只看最近 RATE_WINDOW 秒内达到几次
+# ------------------------------------------------------------
+RATE_LIMIT = 10                        # 🟢可变：时间窗口内最多允许几次
+RATE_WINDOW = 60                       # 🟢可变：时间窗口长度（秒），这里=每60秒最多10次
+_visits = defaultdict(list)            # 🔴固定：{ip: [时间戳, ...]}，记每个 IP 的访问时刻
+
+def is_rate_limited(ip):               # 返回 True=超限了，该拦；False=放行
+    now = time.time()                  # 🔴当前时间（秒）
+    # 只保留"还在窗口内"的访问记录，过期的丢掉
+    _visits[ip] = [t for t in _visits[ip] if now - t < RATE_WINDOW]   # 🔴固定
+    if len(_visits[ip]) >= RATE_LIMIT: # 窗口内次数已满 → 拦
+        return True
+    _visits[ip].append(now)            # 未满 → 记下这次访问，放行
+    return False
+
+# ------------------------------------------------------------
+# 3. 定义一个接口 /chat：网页往这里发消息，就返回 AI 回答
+#    @app.route 叫"路由"，意思是"访问 /chat 这个网址时，执行下面的函数"
+# ------------------------------------------------------------
+@app.route("/chat", methods=["POST"])  # 🟢可变：网址 "/chat"；🔴固定：@app.route、methods 写法
+def chat():
+    # (0) 【限流】先看这个访客(按 IP)是不是发得太频繁
+    ip = request.remote_addr           # 🔴固定：访客的 IP 地址
+    if is_rate_limited(ip):            # 超过阈值就直接拒绝，不再调用大模型（省钱防刷）
+        return Response("你问得太快啦，请过一会儿再试～", mimetype="text/plain", status=429)  # 429=请求过多
+
+    # (1) 从网页发来的请求里取出对话历史
+    data = request.get_json(silent=True) or {}   # 🔴固定：silent=True 解析失败不报错(返回 None)，再用 or {} 兑底
+    history = data.get("messages", []) # 🟢可变：键名 "messages" 要和前端约定一致
+
+    # (1b) 【输入校验】没有有效内容就别白白浪费一次 API 调用
+    if not history:                    # 空列表/没传 messages
+        return Response("请先说点什么呀～", mimetype="text/plain", status=400)  # 400=请求不合法
+
+    # (2) 【RAG 核心】先拿“最新一句用户提问”去检索知识库
+    #     从历史里找最后一条 role==user 的内容作为查询词
+    last_question = ""
+    for msg in reversed(history):                    # 🔴从后往前找
+        if msg.get("role") == "user":
+            last_question = msg.get("content", "")
+            break
+
+    docs_with_id = []                                  # 🟢新：收集 (原文,编号)
+    if last_question:
+        docs_with_id = search_knowledge(last_question)   # 🔴现在是 [(「[1] 原文」,1), ...]
+
+    # ① 拼纯文本的知识内容（给 AI 看，让它引用 [1][2]）
+    knowledge_lines = [text for text, _id in docs_with_id]   # 🟢只取纯文本
+    knowledge_text = "\n\n".join(knowledge_lines)             # 🔴拼接成一大段
+
+    # ② 再返回编号列表（前端显示“引用来源”时用）
+    cited_ids = [_id for _, _id in docs_with_id]       # 🟢新：[1, 2]
+    
+    # (3) 【注入 Prompt】把检索到的资料塞进 system 人设，让 AI 照着资料答
+    system_content = (
+        SYSTEM_PROMPT
+        + "\n\n以下是你掌握的【林小禾相关资料】，回答时优先依据它们，若资料里没有就如实告知：\n"
+        + knowledge_text
+    )   # 🟢可变：这段提示词可以改措辞
+
+    # (4) 把 system 人设（已注入资料）放最前面，拼上前端传来的对话历史
+    messages = [{"role": "system", "content": system_content}] + history
+
+
+    # (5) ★流式核心★：定义一个"生成器"，边收 DeepSeek 的碎片边往外 yield
+    #     生成器 = 用 yield 的函数，能"产出一个、暂停、再产出下一个"
+    def generate():
+        try:
+            stream = client.chat.completions.create(
+                model="deepseek-chat",     # 🟢可变
+                messages=messages,         # 🔴关键：发整段历史
+                stream=True,               # ★🔴开启流式（和你第1关一模一样）
+            )
+            # 下面这段循环，和你命令行第1关写的几乎一模一样！
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content   # 🔴这一小块新增文字
+                if delta:                                # 🔴过滤空块
+                    yield delta                          # 🔴把碎片立即"吐"给浏览器（不是 print，是 yield）
+        except Exception as e:
+            # 大模型调用失败（密钥错/余额不足/网络断）不让服务器崩，友好告知
+            print("调用大模型出错：", e)   # 🔴打到后端控制台，方便你排查真正原因
+            yield "\n[抱歉，AI 暂时无法回答，请稍后再试]"   # 🟢可改提示语
+        finally:
+            # ★引用来源：流式结束后发给前端显示「参考了 [1][2]」
+            yield "\n__REF__:" + ",".join(map(str, cited_ids)) if cited_ids else ""
+
+
+    # (6) 用 Response 包住生成器 = 流式响应
+    #     stream_with_context 🔴固定：让流式期间还能访问请求信息
+    #     mimetype="text/plain" 🟢可变：告诉浏览器这是纯文本流
+    return Response(stream_with_context(generate()), mimetype="text/plain")
+
+# ------------------------------------------------------------
+# 4. 启动服务器（跑在本机 5000 端口）
+# ------------------------------------------------------------
+if __name__ == "__main__":             # 🔴固定：Python 的"程序入口"写法
+    # debug=True：改代码自动重启，报错显示详情，方便开发
+    # 部署时不要 set True，避免泄露细节
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))     # 🟢可变：允许外部访问

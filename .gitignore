@@ -1,0 +1,20 @@
+# ── 敏感文件：绝不能上传到 GitHub ──
+# .env 里存着 DeepSeek API key，必须忽略，防止密钥泄露
+**/.env
+.env
+
+# ── Python 运行时垃圾 ──
+**/__pycache__/
+*.pyc
+
+# ── 虚拟环境 ──
+**/.venv/
+.venv/
+
+# ── RAG 生成产物：由 build_index.py 重建，不入库 ──
+# （本地这两个文件仍会保留，只是不提交到 Git）
+backend/tfidf.pkl
+backend/chroma_db/
+
+# ── 压缩包等杂项 ──
+*.rar
