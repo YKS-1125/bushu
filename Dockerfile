@@ -1,5 +1,5 @@
 # 🐳 Dockerfile —— Railway 用它构建整个应用（前端 + 后端打进同一镜像）
-# 构建上下文 = 项目根目录（林小禾AI项目_完整迁移）
+# 构建上下文 = 项目根目录（林小禾AI项目）
 FROM python:3.11-slim
 
 WORKDIR /app

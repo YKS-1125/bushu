@@ -57,7 +57,7 @@ collection = chroma_client.get_collection("linxiaohe")                          
 #   目标：question(文字) → 向量 → 在 collection 里查最像的 k 段 → 返回文字列表
 #   你需要填两行（提示都写在注释里）：
 # ------------------------------------------------------------
-def search_knowledge(question, k=2):    # 🟢可变：k=返回几段
+def search_knowledge(question, k=4):    # 🟢可变：k=返回几段（调大到 4 减少漏检索）
     # ① 把“问题文字”变成向量（用同一个 vectorizer，与建库时完全一致）
     #   • [question] 🔴固定要加方括号：transform 接收的是“一批文本”，哪怕只查一句也得装成列表
     #   • .toarray() 🔴把稀疏矩阵转成普通数组；.tolist() 🔴转成 Python 列表，chromadb 才认
@@ -79,7 +79,15 @@ def search_knowledge(question, k=2):    # 🟢可变：k=返回几段
 # 2. 创建 Flask 应用，并允许网页跨域访问
 # ------------------------------------------------------------
 app = Flask(__name__)                  # 🔴固定：创建一个 Web 应用
-CORS(app)                              # 🔴固定：允许别的网页地址来调用（跨域放行）
+
+# 【CORS】默认放行全部（本地开发方便）；生产环境用 ALLOWED_ORIGINS 收紧为白名单
+#   例：ALLOWED_ORIGINS="https://linxiaohe.dev,https://www.linxiaohe.dev"
+#   前后端同源部署（Flask 自己托管前端）时其实用不到跨域，配了更安全
+_allowed_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+if _allowed_origins:
+    CORS(app, resources={r"/chat": {"origins": _allowed_origins}})   # 只放行白名单域名
+else:
+    CORS(app)                          # 🟢未配置=放行全部（仅开发用；上线务必设置 ALLOWED_ORIGINS）
 
 # 前端页面目录：兼容两种运行结构
 #   · 本地直接跑 backend/app.py：前端在 backend 的同级目录 ../frontend
@@ -105,10 +113,20 @@ def index():
 # ------------------------------------------------------------
 # 2.5 【限流】防止同一个人短时间狂点——刷爆 API = 烧钱
 #     思路：按 IP 记下每次访问的"时间戳"，只看最近 RATE_WINDOW 秒内达到几次
+#
+#   ⚠️ 局限：这是"内存版"限流，_visits 跟随进程。因此：
+#     · 多进程（gunicorn workers>1）时每个进程各自计数，实际阈值会成倍放大
+#     · 服务重启/休眠唤醒后计数清零
+#   本项目 Render 免费版固定 WEB_CONCURRENCY=1，单进程下足够用；
+#   若上多进程/多实例的高流量场景，应改用 Redis 做集中式限流。
 # ------------------------------------------------------------
 RATE_LIMIT = 10                        # 🟢可变：时间窗口内最多允许几次
 RATE_WINDOW = 60                       # 🟢可变：时间窗口长度（秒），这里=每60秒最多10次
 _visits = defaultdict(list)            # 🔴固定：{ip: [时间戳, ...]}，记每个 IP 的访问时刻
+
+# 【输入上限】防止超长输入/超长历史拉爆 token（=烧钱）
+MAX_MESSAGE_CHARS = 2000               # 🟢单条消息最大字符数
+MAX_HISTORY_MESSAGES = 40              # 🟢保留的最近几条历史（超出只取末尾，防上下文膨胀）
 
 def is_rate_limited(ip):               # 返回 True=超限了，该拦；False=放行
     now = time.time()                  # 🔴当前时间（秒）
@@ -137,6 +155,13 @@ def chat():
     # (1b) 【输入校验】没有有效内容就别白白浪费一次 API 调用
     if not history:                    # 空列表/没传 messages
         return Response("请先说点什么呀～", mimetype="text/plain", status=400)  # 400=请求不合法
+
+    # (1c) 【输入上限】拦住超长输入 + 裁剪超长历史，防 token 膨胀/烧钱
+    last_content = ((history[-1] or {}).get("content") or "") if isinstance(history[-1], dict) else ""
+    if len(last_content) > MAX_MESSAGE_CHARS:
+        return Response(f"输入太长啦（上限 {MAX_MESSAGE_CHARS} 字），精简一下再发吧～", mimetype="text/plain", status=400)
+    if len(history) > MAX_HISTORY_MESSAGES:   # 只保留最近 N 条（过长历史拉高成本）
+        history = history[-MAX_HISTORY_MESSAGES:]
 
     # (2) 【RAG 核心】先拿“最新一句用户提问”去检索知识库
     #     从历史里找最后一条 role==user 的内容作为查询词

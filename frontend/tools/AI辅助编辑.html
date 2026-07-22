@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  阶段三 · AI 辅助编辑工具（教学练习文件）
+  第 1 步：让页面文字「可就地编辑」+「选中取文」
+  ------------------------------------------------------------
+  本步只学两个浏览器原生能力，先不碰 AI：
+    1) contenteditable —— 让一个普通元素变成可输入框
+    2) window.getSelection() —— 读出用户当前选中的文字
+  标注约定：🔴固定=照抄就行 / 🟢可变=你可以改着玩
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />                                <!-- 🔴固定：中文必须 UTF-8，否则乱码 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /> <!-- 🔴固定：手机自适应 -->
+  <title>AI 辅助编辑 · 第1步</title>
+  <style>
+    /* 🟢可变：下面都是外观，随便调 */
+    body {
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      max-width: 720px; margin: 40px auto; padding: 0 20px;
+      color: #2D3B2D; background: #FAFDF7; line-height: 1.7;
+    }
+    h1 { font-size: 24px; }
+    .hint { color: #6B9B7A; font-size: 14px; margin: 4px 0 20px; }
+
+    /* 工具条 */
+    .toolbar {
+      display: flex; gap: 12px; align-items: center;
+      padding: 12px; margin-bottom: 20px;
+      background: #fff; border: 1px solid #A8D5BA; border-radius: 12px;
+    }
+    .btn {
+      padding: 8px 16px; font-size: 14px; cursor: pointer;
+      color: #fff; background: #6B9B7A; border: none; border-radius: 8px;
+      transition: opacity .2s;
+    }
+    .btn:hover { opacity: .88; }
+    .btn.off { background: #999; }                          /* 🟢可变：关闭态用灰色 */
+
+    /* 🔴关键：编辑模式开启时，给可编辑区加个虚线框，让你看得见"现在能改了" */
+    .editable-on [contenteditable="true"] {
+      outline: 2px dashed #6B9B7A; outline-offset: 3px;
+      border-radius: 6px; cursor: text;
+    }
+
+    .article { background: #fff; padding: 24px; border-radius: 12px; border: 1px solid #eee; }
+    .article h2 { font-size: 19px; margin-top: 0; }
+
+    /* 底部：显示"你选中了什么" */
+    .selbox {
+      margin-top: 20px; padding: 14px 16px;
+      background: #fff; border: 1px solid #A8D5BA; border-radius: 12px;
+      font-size: 14px; min-height: 24px;
+    }
+    .selbox b { color: #6B9B7A; }
+    .sel-text { color: #B08968; }                           /* 选中文字用暖色高亮显示 */
+
+    /* 🔴关键：改写面板。position:absolute + 默认隐藏，选中文字时用 JS 定位+显示 */
+    .ai-panel {
+      position: absolute;                 /* 🔴绝对定位，才能贴着选区浮动 */
+      display: none;                      /* 默认隐藏，选中时才 display:flex */
+      gap: 6px; padding: 6px;
+      background: #2D3B2D; border-radius: 10px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.18);
+      z-index: 999;                       /* 🔴盖在其它内容之上 */
+    }
+    .ai-panel button {
+      padding: 6px 12px; font-size: 13px; cursor: pointer;
+      color: #fff; background: transparent;
+      border: 1px solid rgba(255,255,255,.25); border-radius: 7px;
+      transition: background .15s;
+    }
+    .ai-panel button:hover { background: rgba(255,255,255,.15); }
+
+    /* 第3步：AI 改写结果框（默认隐藏）*/
+    .result-box {
+      display: none; margin-top: 20px; padding: 16px 18px;
+      background: #fff; border: 1px solid #6B9B7A; border-radius: 12px;
+    }
+    .result-box .rb-title { color: #6B9B7A; font-size: 13px; margin: 0 0 8px; }
+    .result-box .rb-text {
+      font-size: 15px; line-height: 1.7; white-space: pre-wrap;   /* pre-wrap: 保留换行 */
+      min-height: 24px; color: #2D3B2D;
+    }
+    /* 第4步：结果框里的操作按钮 */
+    .rb-actions { margin-top: 14px; display: flex; gap: 10px; }
+    .apply-btn, .undo-btn {
+      display: none;                       /* 默认隐藏，需要时才显示 */
+      padding: 8px 16px; font-size: 14px; cursor: pointer; border-radius: 8px;
+    }
+    .apply-btn { color: #fff; background: #6B9B7A; border: none; }
+    .apply-btn:hover { opacity: .88; }
+    .undo-btn { color: #B08968; background: transparent; border: 1.5px solid #B08968; }
+    .undo-btn:hover { background: #B08968; color: #fff; }
+  </style>
+</head>
+<body>
+
+  <h1>AI 辅助编辑 · 第 1 步</h1>
+  <p class="hint">目标：点「开启编辑」后可直接改文字；用鼠标选中任意文字，下方会实时显示你选了什么。</p>
+
+  <!-- 工具条：一个开关按钮 -->
+  <div class="toolbar">
+    <button class="btn off" id="toggleBtn">✏️ 开启编辑模式</button>
+    <span id="modeLabel" class="hint" style="margin:0;">当前：只读</span>
+  </div>
+
+  <!-- 🟢可变：示例文章。注意每个要可编辑的元素都加了 contenteditable，默认 false（只读） -->
+  <div class="article" id="article">
+    <h2 contenteditable="false">林小禾 · 个人简介</h2>
+    <p contenteditable="false">
+      我是一名全栈开发者，热爱把复杂的问题拆解成简单的步骤。
+      擅长用 Python 做后端、用现代前端把想法快速变成能用的产品。
+    </p>
+    <p contenteditable="false">
+      最近在研究 AI 应用落地，做过 RAG 知识库问答、自动化脚本等项目。
+      相信好的工具能让每个人都事半功倍。
+    </p>
+  </div>
+
+  <!-- 底部：显示当前选中的文字 -->
+  <div class="selbox">
+    <b>你选中的文字：</b><span class="sel-text" id="selText">（还没选）</span>
+  </div>
+
+  <!-- 🔴改写面板：默认隐藏，选中文字后由 JS 定位显示。data-tone 记录改写方向 -->
+  <div class="ai-panel" id="aiPanel">
+    <button data-tone="professional">更专业</button>
+    <button data-tone="lively">更活泼</button>
+    <button data-tone="concise">更精简</button>
+  </div>
+
+  <!-- 第3步：AI 改写结果显示在这里 -->
+  <div class="result-box" id="resultBox">
+    <p class="rb-title" id="rbTitle">AI 改写结果</p>
+    <div class="rb-text" id="rbText"></div>
+    <!-- 第4步：应用替换 / 撤销 -->
+    <div class="rb-actions">
+      <button class="apply-btn" id="applyBtn">✔️ 应用替换</button>
+      <button class="undo-btn" id="undoBtn">↩️ 撤销替换</button>
+    </div>
+  </div>
+
+  <script>
+  /* ============================================================
+     第 1 步的全部逻辑。用 IIFE 包起来，变量不污染全局。
+     ============================================================ */
+  (function () {
+    // —— 先把要用的元素都拿到手（🔴固定套路：getElementById）——
+    const toggleBtn = document.getElementById('toggleBtn');   // 开关按钮
+    const modeLabel = document.getElementById('modeLabel');   // "当前：只读/编辑中"
+    const article   = document.getElementById('article');     // 文章容器
+    const selText   = document.getElementById('selText');     // 显示选中文字的地方
+
+    // 🟢可变：把文章里所有"想让它可编辑"的元素选出来
+    //   querySelectorAll('[contenteditable]') = 选中所有带 contenteditable 属性的标签
+    const editables = article.querySelectorAll('[contenteditable]');
+
+    const aiPanel   = document.getElementById('aiPanel');     // 改写面板
+    const resultBox = document.getElementById('resultBox');   // 结果框
+    const rbTitle   = document.getElementById('rbTitle');     // 结果框标题
+    const rbText    = document.getElementById('rbText');      // 结果文字
+    const applyBtn  = document.getElementById('applyBtn');    // 应用替换按钮
+    const undoBtn   = document.getElementById('undoBtn');     // 撤销按钮
+
+    // 🔴后端地址：本地 Flask 跑在 5000 端口（与网站同一个 /chat 接口）
+    const BACKEND_URL = 'http://localhost:5000/chat';   // 🟢可变：部署后换成线上地址
+
+    // 🟢可变：三个改写方向对应的“指令”（发给 AI 看）
+    const TONE_PROMPTS = {
+      professional: '请把下面这段文字改写得更专业、严谨、有说服力',
+      lively:       '请把下面这段文字改写得更活泼、生动、口语化',
+      concise:      '请把下面这段文字改写得更精简、抛开冗余修饰',
+    };
+
+    let editing = false;      // 🔴一个"开关状态"变量：现在是不是编辑模式
+    let savedRange = null;    // 🔴记住用户选中的那段范围（Range），第4步替换时要用
+    let savedText  = '';      // 🔴记住选中的纯文字
+    let aiResult   = '';      // 🔴记住 AI 改写后的文字（点“应用替换”时填回）
+    let lastEdit   = null;    // 🔴记住上次替换（新节点+原文），用于撤销
+
+    // —— 点按钮：在"只读 ↔ 编辑"之间切换 ——
+    toggleBtn.addEventListener('click', function () {
+      editing = !editing;   // 🔴取反：true 变 false，false 变 true
+
+      // 逐个把元素的 contenteditable 设成 true / false
+      //   true  = 可以点进去打字改
+      //   false = 只读，点了也改不了
+      editables.forEach(function (el) {
+        el.setAttribute('contenteditable', editing ? 'true' : 'false');
+      });
+
+      // 给 body 加/去一个 class，让 CSS 显示那圈虚线框（纯视觉提示）
+      document.body.classList.toggle('editable-on', editing);
+
+      // 更新按钮文字和状态标签
+      if (editing) {
+        toggleBtn.textContent = '🔒 退出编辑模式';
+        toggleBtn.classList.remove('off');
+        modeLabel.textContent = '当前：编辑中（可直接改文字）';
+      } else {
+        toggleBtn.textContent = '✏️ 开启编辑模式';
+        toggleBtn.classList.add('off');
+        modeLabel.textContent = '当前：只读';
+      }
+    });
+
+    // —— 监听"选中文字"这个动作 ——
+    // 🔴固定：只要鼠标松开(mouseup)或键盘操作(keyup)，就去读一次当前选区
+    document.addEventListener('mouseup', showSelection);
+    document.addEventListener('keyup', showSelection);
+
+    function showSelection() {
+      // 🔴核心 API：window.getSelection() 拿到"用户当前选中的东西"
+      const selection = window.getSelection();
+      const text = selection.toString().trim();   // .toString() 把选区转成纯文字
+
+      if (text) {
+        selText.textContent = '「' + text + '」（共 ' + text.length + ' 字）';
+      } else {
+        selText.textContent = '（还没选）';
+      }
+
+      // 🔴只有"编辑模式 + 选到了非空文字"才弹面板；否则收起面板
+      if (editing && text) {
+        savedText  = text;
+        savedRange = selection.getRangeAt(0);   // 🔴记住这段范围，后面替换要用
+        showPanel(selection);
+      } else {
+        hidePanel();
+      }
+    }
+
+    // —— 把面板定位到选区正上方并显示 ——
+    function showPanel(selection) {
+      // 🔴getBoundingClientRect：拿到选区在屏幕上的矩形位置（含 top/left/width）
+      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      aiPanel.style.display = 'flex';   // 先显示，才能量出面板自身宽高
+
+      // 🔴加 window.scrollX/Y：把"视口坐标"换算成"整页坐标"，滚动后也不跑偏
+      const top  = rect.top  + window.scrollY - aiPanel.offsetHeight - 8;  // 选区上方 8px
+      const left = rect.left + window.scrollX + rect.width / 2 - aiPanel.offsetWidth / 2; // 水平居中对齐选区
+      aiPanel.style.top  = Math.max(top, window.scrollY + 4) + 'px';       // 别顶出页面顶部
+      aiPanel.style.left = Math.max(left, 4) + 'px';                       // 别顶出页面左边
+    }
+
+    function hidePanel() {
+      aiPanel.style.display = 'none';
+    }
+
+    // —— 点面板上的三个按钮：真正调后端让 AI 改写 ——
+    // 🔴用 mousedown 而不是 click：click 会先让选区消失；mousedown 抢在前面触发
+    aiPanel.addEventListener('mousedown', function (e) {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      e.preventDefault();   // 🔴阻止默认行为，避免点按钮时丢失选区
+      const tone = btn.getAttribute('data-tone');   // professional / lively / concise
+      rewriteByAI(tone);
+    });
+
+    // —— 核心：把“指令 + 选中文字”发给后端，流式读回 AI 改写结果 ——
+    // 🔴 async 函数：里面可以用 await 等网络请求
+    async function rewriteByAI(tone) {
+      const toneLabel = { professional: '更专业', lively: '更活泼', concise: '更精简' }[tone];
+      hidePanel();
+
+      // 先把结果框显示出来，显示“改写中…”的 loading
+      resultBox.style.display = 'block';
+      rbTitle.textContent = 'AI 正在把选中文字改得「' + toneLabel + '」…';
+      rbText.textContent = '…';
+      applyBtn.style.display = 'none';   // 🔴新一轮改写：先藏起两个按钮
+      undoBtn.style.display = 'none';
+
+      // 🔴拼提示词：说清楚“只返回改写后的文字”，避免 AI 多说废话
+      const prompt = TONE_PROMPTS[tone]
+        + '。只返回改写后的正文，不要任何解释、不要加引号。\n\n原文：\n' + savedText;
+
+      try {
+        // 🔴fetch POST：body 里的 messages 格式要和后端约定的一致
+        const res = await fetch(BACKEND_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },   // 🔴告诉后端发的是 JSON
+          body: JSON.stringify({ messages: [{ role: 'user', content: prompt }] }),
+        });
+        if (!res.ok) throw new Error('后端返回 ' + res.status);
+
+        // 🔴流式读取：后端是一小块一小块吐回来的，边收边显示（打字机效果）
+        const reader  = res.body.getReader();      // 拿到“流”的读取器
+        const decoder = new TextDecoder('utf-8');  // 把二进制小块解成文字
+        let full = '';
+        rbText.textContent = '';
+        while (true) {
+          const { done, value } = await reader.read();   // 读下一块
+          if (done) break;                               // 读完了就退出
+          full += decoder.decode(value, { stream: true });
+          rbText.textContent = full;                     // 边收边上屏
+        }
+        rbTitle.textContent = '✅ AI 改写结果（「' + toneLabel + '」）';
+        aiResult = full.trim();            // 🔴存下改写结果，供“应用替换”使用
+        if (aiResult) applyBtn.style.display = 'inline-block';   // 有结果才显“应用替换”
+      } catch (err) {
+        // 常见错：后端没开（连不上 5000）、或网络问题
+        rbTitle.textContent = '❌ 改写失败';
+        rbText.textContent = '错误：' + err.message + '\n\n请确认后端已在 5000 端口启动。';
+      }
+    }
+
+    // —— 第4步：点“应用替换”，把 AI 结果填回原文选中的位置 ——
+    applyBtn.addEventListener('click', function () {
+      if (!savedRange || !aiResult) return;
+      // 🔴把改写后的文字做成一个文本节点
+      const newNode = document.createTextNode(aiResult);
+      // 🔴先删掉选中范围里的内容，再把新节点插进去
+      savedRange.deleteContents();
+      savedRange.insertNode(newNode);
+      // 🔴记住这次替换，以便撤销（新节点 + 它原来是什么文字）
+      lastEdit = { node: newNode, oldText: savedText };
+      // 清空选区、切换按钮显示
+      window.getSelection().removeAllRanges();
+      applyBtn.style.display = 'none';
+      undoBtn.style.display = 'inline-block';
+      rbTitle.textContent = '✅ 已替换到原文（可撤销）';
+    });
+
+    // —— 点“撤销”，把刚插入的新节点换回原文 ——
+    undoBtn.addEventListener('click', function () {
+      if (!lastEdit) return;
+      // 🔴replaceWith：把新节点直接换成一个“原文”文本节点
+      lastEdit.node.replaceWith(document.createTextNode(lastEdit.oldText));
+      lastEdit = null;
+      undoBtn.style.display = 'none';
+      rbTitle.textContent = '↩️ 已撤销，恢复为原文';
+    });
+  })();
+  </script>
+</body>
+</html>

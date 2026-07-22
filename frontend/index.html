@@ -5,6 +5,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="canvas:aspect-ratio" content="16:9" />
   <title>林小禾 · 前端开发 &amp; Python 工程师</title>
+
+  <!-- ─── SEO / 社交分享元信息 ───────────────────────────────────────
+       ⚠️ 部署后请把下面的 https://linxiaohe.dev 换成你的真实域名，
+          并把 og:image 换成一张真实预览图（建议 1200x630）。 -->
+  <meta name="description" content="林小禾 —— 前端开发 & Python 工程师，专注 Web 前端、Python 后端与 AI Agent / RAG 开发。开放远程合作与自由职业项目。" />
+  <meta name="author" content="林小禾" />
+  <meta name="keywords" content="林小禾,前端开发,Python 工程师,全栈,React,Vue,FastAPI,AI Agent,RAG" />
+  <meta name="theme-color" content="#6B9B7A" />
+  <link rel="canonical" href="https://linxiaohe.dev/" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:title" content="林小禾 · 前端开发 & Python 工程师" />
+  <meta property="og:description" content="用代码构建清爽可靠的数字产品，专注 Web 前端、Python 后端与 AI Agent / RAG 开发。" />
+  <meta property="og:url" content="https://linxiaohe.dev/" />
+  <meta property="og:image" content="https://linxiaohe.dev/og-image.png" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="林小禾 · 前端开发 & Python 工程师" />
+  <meta name="twitter:description" content="用代码构建清爽可靠的数字产品，专注 Web 前端、Python 后端与 AI Agent / RAG 开发。" />
+  <meta name="twitter:image" content="https://linxiaohe.dev/og-image.png" />
+
+  <!-- Favicon：内联品牌叶片 SVG，无需额外文件 -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 22'%3E%3Cpath d='M9 21 C9 14 9 8 9 2' stroke='%236B9B7A' stroke-width='1.4' fill='none'/%3E%3Cellipse cx='5.5' cy='6' rx='4' ry='6.5' fill='%23A8D5BA' transform='rotate(16 5.5 6)'/%3E%3Cellipse cx='12.5' cy='10' rx='3.5' ry='5.5' fill='%236B9B7A' opacity='0.55' transform='rotate(-12 12.5 10)'/%3E%3C/svg%3E" />
+
   <style>
     /* ─── seed tokens ─────────────────────────────────────────────────── */
     :root {
@@ -269,6 +296,22 @@
     .topnav nav a:hover::after { width: 100%; }
     .topnav nav a.active { color: var(--primary); font-weight: 500; }
     .topnav nav a.active::after { width: 100%; }
+
+    /* 汉堡菜单按钮：桌面隐藏，窄屏显示 */
+    .nav-toggle {
+      display: none;
+      width: 40px; height: 40px;
+      align-items: center; justify-content: center;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--fg);
+      transition: border-color 0.2s ease, color 0.2s ease;
+    }
+    .nav-toggle:hover { border-color: var(--primary); color: var(--primary); }
+    .nav-toggle svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; }
+    .nav-toggle .icon-close { display: none; }
+    .nav-toggle[aria-expanded="true"] .icon-open { display: none; }
+    .nav-toggle[aria-expanded="true"] .icon-close { display: block; }
 
     /* ─── on-page theme switcher ────────────────────────────────────── */
     .theme-switch {
@@ -872,8 +915,31 @@
       .about-facts { grid-template-columns: 1fr; }
     }
     @media (max-width: 600px) {
-      .topnav nav { gap: var(--gap-md); }
-      .topnav nav a { font-size: 13px; }
+      .nav-toggle { display: inline-flex; }
+      .topnav-inner { position: relative; }
+      .topnav nav {
+        position: absolute;
+        top: calc(100% + 1px); left: 0; right: 0;
+        flex-direction: column;
+        gap: 0;
+        background: color-mix(in oklch, var(--seed-surface) 96%, var(--seed-bg));
+        backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--border);
+        box-shadow: 0 12px 24px color-mix(in oklch, var(--seed-primary) 10%, transparent);
+        padding: var(--gap-xs) var(--gutter) var(--gap-sm);
+        transform: translateY(-8px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease, transform 0.2s ease;
+      }
+      .topnav nav.open { opacity: 1; transform: none; pointer-events: auto; }
+      .topnav nav a {
+        font-size: 15px;
+        padding-block: 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      .topnav nav a:last-child { border-bottom: none; }
+      .topnav nav a::after { display: none; }
       .hero { padding-block: 56px; }
       .hero-meta { gap: var(--gap-md); }
     }
@@ -887,6 +953,7 @@
       .draw-path { stroke-dashoffset: 0; }
       .skill-bar-fill { transition: none; }
       .chat-fab, .chat-panel { transition: none; }
+      .topnav nav { transition: none; }
     }
 
     /* ─── AI 聊天助手（悬浮按钮 + 面板）───────────────── */
@@ -936,6 +1003,25 @@
     .chat-msg.ai { align-self: flex-start; background: var(--fg-soft); color: var(--fg); border-bottom-left-radius: 4px; }
     .chat-msg.ai.loading { color: var(--muted); font-style: italic; }
 
+    /* A1：Markdown 渲染后的富文本样式（只作用于加了 .md 的 AI 气泡）*/
+    .chat-msg.md { white-space: normal; }                    /* 🔴关键：渲染 Markdown 后关掉 pre-wrap，否则块级元素会多出空行 */
+    .chat-msg.md > *:first-child { margin-top: 0; }          /* 去掉首/末元素多余间距，气泡不显松散 */
+    .chat-msg.md > *:last-child  { margin-bottom: 0; }
+    .chat-msg.md p { margin: 0 0 8px; }
+    .chat-msg.md ul, .chat-msg.md ol { margin: 6px 0; padding-left: 20px; }
+    .chat-msg.md li { margin: 2px 0; }
+    .chat-msg.md strong { font-weight: 700; }
+    .chat-msg.md a { color: var(--primary-deep); border-bottom: 1px dotted var(--primary-deep); }
+    .chat-msg.md code {                                      /* 行内代码 */
+      background: var(--accent-soft); padding: 1px 6px; border-radius: 6px;
+      font-family: var(--font-mono); font-size: 0.92em;
+    }
+    .chat-msg.md pre {                                       /* 代码块 */
+      background: #2D3B2D; color: #E8F0E8; padding: 12px 14px;
+      border-radius: 10px; overflow-x: auto; margin: 8px 0;
+    }
+    .chat-msg.md pre code { background: none; padding: 0; color: inherit; }
+
     /* ★引用来源 */
     .citation {
       font-size: var(--fs-meta);
@@ -957,6 +1043,13 @@
     .chat-input-row input:focus { outline: none; border-color: var(--primary); }
     .chat-send { padding: 0 16px; background: var(--primary); color: #fff; border-radius: 10px; font-size: var(--fs-small); }
     .chat-send:disabled { opacity: 0.5; cursor: not-allowed; }
+    .chat-send.is-stopping { background: #B08968; }         /* A2：生成中变"停止"，用暖色区分 */
+    .retry-btn {                                            /* A3：错误重试按钮 */
+      margin-top: 8px; padding: 6px 14px; font-size: var(--fs-small);
+      color: var(--primary); background: transparent;
+      border: 1.5px solid var(--primary); border-radius: 8px; cursor: pointer;
+    }
+    .retry-btn:hover { background: var(--primary); color: #fff; }
   </style>
 </head>
 <body>
@@ -993,7 +1086,7 @@
         </svg>
         林小禾
       </a>
-      <nav aria-label="主导航">
+      <nav aria-label="主导航" id="primaryNav">
         <a href="#about">关于</a>
         <a href="#offerings">方向</a>
         <a href="#skills">技能</a>
@@ -1006,6 +1099,10 @@
         <button class="theme-dot" data-theme="misty" aria-label="薄雾" title="薄雾" aria-pressed="false"></button>
         <button class="theme-dot" data-theme="warm" aria-label="暖阳" title="暖阳" aria-pressed="false"></button>
       </div>
+      <button class="nav-toggle" id="navToggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="primaryNav">
+        <svg class="icon-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        <svg class="icon-close" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
     </div>
   </header>
 
@@ -1492,28 +1589,56 @@
     const rootEl = document.documentElement;
     const rootCss = getComputedStyle(rootEl);
     const dots = document.querySelectorAll('.theme-dot');
-    function applyTheme(name) {
+    const THEME_KEY = 'linxiaohe_theme';               // 🟢localStorage 键名
+    const validThemes = ['light', 'dark', 'misty', 'warm'];
+    function applyTheme(name, persist) {
       themeTokens.forEach(k => {
         const v = rootCss.getPropertyValue('--theme-' + name + '-' + k).trim();
         if (v) rootEl.style.setProperty('--seed-' + k, v);
       });
       dots.forEach(d => d.setAttribute('aria-pressed', String(d.dataset.theme === name)));
+      if (persist) localStorage.setItem(THEME_KEY, name);   // 🔴记住用户选择
     }
-    dots.forEach(dot => dot.addEventListener('click', () => applyTheme(dot.dataset.theme)));
+    dots.forEach(dot => dot.addEventListener('click', () => applyTheme(dot.dataset.theme, true)));
+    // 初始主题：优先读上次选择，否则跟随系统深/浅色偏好
+    (function initTheme() {
+      const saved = localStorage.getItem(THEME_KEY);
+      if (saved && validThemes.includes(saved)) { applyTheme(saved, false); return; }
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      applyTheme(prefersDark ? 'dark' : 'light', false);
+    })();
+
+    // Mobile hamburger nav (仅窄屏生效；CSS 在 <=600px 才显示按钮与折叠菜单)
+    const navToggle = document.getElementById('navToggle');
+    const primaryNav = document.getElementById('primaryNav');
+    function setNav(open) {
+      primaryNav.classList.toggle('open', open);
+      navToggle.setAttribute('aria-expanded', String(open));
+      navToggle.setAttribute('aria-label', open ? '关闭导航菜单' : '打开导航菜单');
+    }
+    navToggle.addEventListener('click', () => setNav(!primaryNav.classList.contains('open')));
+    // 点菜单项后自动收起
+    primaryNav.addEventListener('click', (e) => { if (e.target.tagName === 'A') setNav(false); });
+    // Esc 关闭
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setNav(false); });
+    // 点菜单外的区域关闭
+    document.addEventListener('click', (e) => {
+      if (primaryNav.classList.contains('open') && !primaryNav.contains(e.target) && !navToggle.contains(e.target)) setNav(false);
+    });
   </script>
 
   <!-- ─── AI 助手聊天窗口 ─────────────────────── -->
-  <button class="chat-fab" id="chatFab" aria-label="打开 AI 助手">
+  <button class="chat-fab" id="chatFab" aria-label="打开 AI 助手" aria-expanded="false" aria-controls="chatPanel">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
     </svg>
   </button>
 
-  <div class="chat-panel" id="chatPanel" role="dialog" aria-label="AI 助手">
+  <div class="chat-panel" id="chatPanel" role="dialog" aria-modal="true" aria-label="林小禾的 AI 助手">
     <div class="chat-header">
       林小禾的 AI 助手
       <small>由 DeepSeek 驱动 · 有问题尽管问</small>
-      <button id="chatClear" title="清空对话">🗑</button>   <!-- 🟢新增：清空按钮；title=鼠标悬停时的提示文字 -->
+      <button id="chatClear" title="清空对话" aria-label="清空对话历史">🗑</button>   <!-- 🟢新增：清空按钮；title=鼠标悬停时的提示文字 -->
     </div>
     <div class="chat-body" id="chatBody">
       <div class="chat-msg ai">你好！我是林小禾的网站助手，想了解他的技能、方向或联系方式，都可以问我～</div>
@@ -1524,6 +1649,8 @@
     </div>
   </div>
 
+  <!-- A1：Markdown 渲染库 marked —— 把 AI 返回的 **加粗**/列表/```代码``` 变成真正的富文本 -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
   <script>
     // ─── AI 助手前端逻辑 ────────────────────────
     // 🟢后端地址：自动适配
@@ -1552,10 +1679,30 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(history));   // 🔴固定写法
     }
 
-    // 点悬浮按钮开/关面板
+    // 点悬浮按钮开/关面板（含焦点管理与 Esc 关闭）
+    function openChat() {
+      panel.classList.add('open');
+      fab.setAttribute('aria-expanded', 'true');
+      input.focus();
+    }
+    function closeChat() {
+      if (!panel.classList.contains('open')) return;
+      panel.classList.remove('open');
+      fab.setAttribute('aria-expanded', 'false');
+      fab.focus();                                  // 关闭后把焦点送回触发按钮
+    }
     fab.addEventListener('click', () => {
-      panel.classList.toggle('open');
-      if (panel.classList.contains('open')) input.focus();
+      panel.classList.contains('open') ? closeChat() : openChat();
+    });
+    // Esc 关闭聊天面板；循环焦点（简易 focus trap）
+    panel.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { closeChat(); return; }
+      if (e.key !== 'Tab') return;
+      const focusables = panel.querySelectorAll('button, input, [href], [tabindex]:not([tabindex="-1"])');
+      if (!focusables.length) return;
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     });
 
     // 在聊天区加一条消息气泡，返回该元素（方便后面把“思考中…”换成回答）
@@ -1568,37 +1715,69 @@
       return el;
     }
 
+    // A1：把一段 Markdown 文本渲染成富文本，塞进气泡
+    //   · 先去掉答案末尾的 __REF__:1,2 标记（那是给引用解析用的，不该显示）
+    //   · marked.parse 把 Markdown 转成 HTML；加 .md 类启用富文本样式
+    function renderMarkdown(el, text) {
+      const clean = text.split('__REF__:')[0].trimEnd();   // 🔴去掉引用标记
+      el.classList.add('md');                              // 🔴启用 Markdown 样式（关掉 pre-wrap）
+      el.innerHTML = marked.parse(clean);                  // 🔴Markdown → HTML
+    }
+
     // 页面加载时，把从 localStorage 读回的历史重新画成气泡（刷新后能看见上次对话）
     // role 是 'user' 就画成用户气泡，否则（assistant）画成 ai 气泡
-    history.forEach(msg => addMsg(msg.content, msg.role === 'user' ? 'user' : 'ai'));
+    history.forEach(msg => {
+      const el = addMsg(msg.content, msg.role === 'user' ? 'user' : 'ai');
+      if (msg.role !== 'user') renderMarkdown(el, msg.content);   // 🟢AI 历史消息也渲染成 Markdown
+    });
 
-    async function send() {
-      const question = input.value.trim();
-      if (!question) return;
+    // A2/A4：中断控制器、流式状态、上下文裁剪
+    let abortController = null;                 // A2：每次请求新建，用来中断 fetch
+    let isStreaming = false;                    // A2：是否正在生成（决定按钮是"发送"还是"停止"）
+    const MAX_CONTEXT_MSGS = 12;                // 🟢可变：最多带最近 12 条（约 6 轮）给后端，防 token 膨胀
+    function setStreaming(on) {
+      isStreaming = on;
+      sendBtn.textContent = on ? '停止' : '发送';        // 🟢生成中按钮文字变"停止"
+      sendBtn.classList.toggle('is-stopping', on);
+    }
+    // A4：只把最近若干条历史发给后端（本地仍保留完整历史用于显示）
+    function trimHistory(all) {
+      return all.length > MAX_CONTEXT_MSGS ? all.slice(-MAX_CONTEXT_MSGS) : all;
+    }
 
-      addMsg(question, 'user');                             // 显示用户气泡
-      history.push({ role: 'user', content: question });   // 存进历史
-      saveHistory();                                       // 🔴立即落盘（刷新不丢）
-      input.value = '';
-      sendBtn.disabled = true;
+    // 发送。replayLoading 有值 = A3 重试：复用同一个气泡、不重复入历史
+    async function send(replayLoading) {
+      if (!replayLoading) {
+        const question = input.value.trim();
+        if (!question || isStreaming) return;              // 生成中禁止再发
+        addMsg(question, 'user');                          // 显示用户气泡
+        history.push({ role: 'user', content: question }); // 存进历史
+        saveHistory();                                     // 🔴立即落盘（刷新不丢）
+        input.value = '';
+      }
+      // 复用（重试）时把旧气泡复位成"思考中…"；否则新建一个
+      const loading = replayLoading || addMsg('', 'ai');
+      loading.className = 'chat-msg ai loading';           // 复位样式（去掉 .md / 错误态）
+      loading.textContent = '思考中…';
 
-      const loading = addMsg('思考中…', 'ai');
-      loading.classList.add('loading');
+      abortController = new AbortController();              // A2：新建中断控制器
+      setStreaming(true);
+      let answer = '';                                     // 🟢拼完整答案
+      let cited_ids = [];                                  // 🟢存放引用的 [1][2]...
 
       try {
         // fetch：浏览器向后端发 HTTP POST 请求
         const resp = await fetch(CHAT_API, {
           method: 'POST',                                  // 🔴固定
           headers: { 'Content-Type': 'application/json' }, // 🔴固定
-          body: JSON.stringify({ messages: history }),     // 把整段历史发过去
+          body: JSON.stringify({ messages: trimHistory(history) }), // A4：只发最近若干条
+          signal: abortController.signal,                  // A2：把中断信号交给 fetch
         });
         // ── 流式读取：把 resp.body 当成"水管"，一段段读出来 ──
         loading.classList.remove('loading');
         loading.textContent = '';                        // 🔴先清空"思考中…"
         const reader = resp.body.getReader();            // 🔴拿到流的"读取器"
         const decoder = new TextDecoder();               // 🔴把字节解码成文字
-        let answer = '';                                 // 🟢拼完整答案
-        let cited_ids = [];                                // 🟢新：存放引用的 [1][2]...
         
         // ↓↓↓ 这段循环就是你的练手，和第 1 关的 for chunk 完全镜像 ↓↓↓
         while (true) {
@@ -1618,8 +1797,11 @@
         }
         // ↑↑↑ 练手结束 ↑↑↑
 
-        // 循环结束 = 整段回答收完，把拼好的完整答案存进历史（下一轮才记得）
-        history.push({ role: 'assistant', content: answer }); // 🔴完整答案存历史
+        // 循环结束 = 整段回答收完
+        // A1：流式过程中是纯文本逐字冒，收完后一次性渲染成 Markdown 富文本
+        renderMarkdown(loading, answer);                     // 🟢把气泡内容换成富文本
+        const cleanAnswer = answer.split('__REF__:')[0].trimEnd();  // 存历史也去掉引用标记
+        history.push({ role: 'assistant', content: cleanAnswer }); // 🔴完整答案存历史
         saveHistory();                                       // 🔴立即落盘
 
         // ★引用来源显示：如果检索到了资料编号，就在答案底部加一行小字「参考了 [1][2]」
@@ -1632,18 +1814,45 @@
           loading.appendChild(citationEl);                      // 🔴塞进同一个气泡容器（让 AI 消息下面紧跟着小字）
         }
       } catch (e) {
-        // 网络出错（如后端未启动）才会走到这里
         loading.classList.remove('loading');
-        loading.textContent = '连接失败，请确认后端已启动（python app.py）。';
+        if (e.name === 'AbortError') {
+          // A2：用户主动点了"停止" —— 保留已经收到的部分答案
+          if (answer.trim()) {
+            renderMarkdown(loading, answer);
+            const cleanAnswer = answer.split('__REF__:')[0].trimEnd();
+            history.push({ role: 'assistant', content: cleanAnswer });
+            saveHistory();
+            const stopHint = document.createElement('div');
+            stopHint.className = 'citation';
+            stopHint.textContent = '（已停止生成）';
+            loading.appendChild(stopHint);
+          } else {
+            loading.textContent = '（已停止）';
+          }
+        } else {
+          // A3：网络/后端出错 —— 显示错误 + 一键重试按钮
+          loading.textContent = '⚠️ 连接失败，请确认后端已启动（python app.py）。';
+          const retryBtn = document.createElement('button');
+          retryBtn.className = 'retry-btn';
+          retryBtn.textContent = '🔄 重试';
+          retryBtn.addEventListener('click', () => send(loading)); // 复用本气泡重发，不重复入历史
+          loading.appendChild(document.createElement('br'));
+          loading.appendChild(retryBtn);
+        }
       } finally {
-        // 无论成功失败都会执行：重新启用发送按钮、滚到底部
-        sendBtn.disabled = false;
+        // 无论成功/失败/中止都会执行：恢复按钮、滚到底部
+        setStreaming(false);                 // A2：按钮变回"发送"
+        abortController = null;
         body.scrollTop = body.scrollHeight;
       }
     }
 
-    sendBtn.addEventListener('click', send);
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+    // A2：发送按钮双用途 —— 生成中点它 = 停止；否则 = 发送
+    sendBtn.addEventListener('click', () => {
+      if (isStreaming) { if (abortController) abortController.abort(); }
+      else send();
+    });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !isStreaming) send(); });
 
     // 清空对话：三处都要清，缺一不可
     function clearHistory() {
