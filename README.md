@@ -1,3 +1,13 @@
+---
+title: 林小禾个人网站
+emoji: 🌾
+colorFrom: green
+colorTo: yellow
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # 林小禾 · 个人网站 + AI 助手
 
 个人简历/作品集站点，内置一个基于 **DeepSeek + Flask + RAG** 的网站 AI 助手。
@@ -46,12 +56,21 @@ python app.py
 
 浏览器打开 http://127.0.0.1:5000 ，右下角悬浮按钮即为 AI 助手。
 
-## 部署（Render）
+## 部署
 
-1. 将本目录推到 GitHub 仓库。
-2. Render → New + → Blueprint，连接仓库，自动读取 `render.yaml` 构建。
-3. 在服务的 Environment 中填入 `DEEPSEEK_API_KEY`（`render.yaml` 标记为 `sync:false`，不写进仓库）。
-4. 构建阶段 `Dockerfile` 会自动执行 `build_index.py` 重建向量索引，无需提交二进制产物。
+### 方式一：Hugging Face Spaces（推荐，免费无绑卡）
+
+1. 登录 [huggingface.co](https://huggingface.co)（GitHub 账号一键登录）。
+2. 右上角头像 → **New Space** → 名字填 `bushu`，SDK 选 **Docker**。
+3. 创建后在 Space 的 **Settings → Repository** 里连接 GitHub 仓库 `YKS-1125/bushu`（或直接 git push 到 HF）。
+4. **Settings → Variables and secrets** 添加 Secret：`DEEPSEEK_API_KEY`。
+5. HF 自动构建 Docker 镜像并启动，完成后获得网址 `https://<用户名>-bushu.hf.space`。
+
+### 方式二：Render（需绑卡）
+
+1. Render → New + → Blueprint，连接仓库，自动读取 `render.yaml` 构建。
+2. 在服务的 Environment 中填入 `DEEPSEEK_API_KEY`。
+3. 构建阶段 Dockerfile 自动重建向量索引。
 
 > 免费实例内存 512MB、无访问会休眠；`WEB_CONCURRENCY` 固定为 1，避免多进程各自加载向量库导致 OOM。
 
@@ -67,6 +86,6 @@ python app.py
 | 变量 | 说明 | 默认 |
 | --- | --- | --- |
 | `DEEPSEEK_API_KEY` | DeepSeek API 密钥（必填） | — |
-| `PORT` | 服务端口 | 5000 |
+| `PORT` | 服务端口 | 7860（容器）/ 5000（本地） |
 | `WEB_CONCURRENCY` | gunicorn 进程数 | 1 |
 | `ALLOWED_ORIGINS` | CORS 允许来源，逗号分隔；留空表示放行全部（仅开发用） | 空 |
