@@ -1,0 +1,17 @@
+# 🚀 Render 部署蓝图（Blueprint）
+# 在 Render 网页端选 "New +" → "Blueprint" → 连接本仓库，会自动读取本文件建服务。
+# 也可以不用它，直接 "New +" → "Web Service" 手动配（见对话里的步骤）。
+services:
+  - type: web                     # Web 服务（对外提供 HTTP 访问）
+    name: bushu                   # 服务名（可改）
+    runtime: docker               # 用仓库根目录的 Dockerfile 构建
+    dockerfilePath: ./Dockerfile  # Dockerfile 路径
+    dockerContext: .              # 构建上下文 = 仓库根（这样 frontend/ 也能被打包）
+    plan: free                    # 免费实例（512MB 内存；无访问会休眠）
+    region: singapore             # 机房：新加坡（离国内近，延迟更低）
+    healthCheckPath: /            # 健康检查打首页，返回 200 视为存活
+    envVars:
+      - key: DEEPSEEK_API_KEY     # DeepSeek 密钥：标记 sync:false，需在 Render 后台手动填，不写进仓库
+        sync: false
+      - key: WEB_CONCURRENCY      # gunicorn 进程数：免费版内存小，固定 1
+        value: "1"
