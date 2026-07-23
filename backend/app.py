@@ -14,6 +14,7 @@
 
 import os                              # 🔴固定
 import time                            # 🔴固定：限流要用"当前时间"算时间窗口
+import json                            # 🔴固定：把"引用来源"（编号+原文片段）打包成 JSON 发给前端
 import pickle                          # 🔴固定：读取第2步保存的"向量化器"tfidf.pkl
 import chromadb                        # 🔴固定：连接第2步建好的向量数据库
 from collections import defaultdict    # 🔴固定：限流用的"带默认值的字典"
@@ -57,22 +58,39 @@ collection = chroma_client.get_collection("linxiaohe")                          
 #   目标：question(文字) → 向量 → 在 collection 里查最像的 k 段 → 返回文字列表
 #   你需要填两行（提示都写在注释里）：
 # ------------------------------------------------------------
-def search_knowledge(question, k=4):    # 🟢可变：k=返回几段（调大到 4 减少漏检索）
+# 【相关性阈值】余弦距离 ≥ 此值视为"基本无关"，直接丢弃，避免给跑题问题硬塞资料。
+#   经真实校准（见 _calib）：完全无关的问题（如"美国总统是谁""写首诗"）对所有知识块
+#   距离≈1.000（零字符重叠）；相关问题 top 命中普遍在 0.88~0.96。故默认 0.97 只滤除
+#   "零重叠"噪声，不误伤相关问题。⚠️TF-IDF 无法区分"天气→FAQ"这类功能词噪声，
+#   更精细的语义区分需升级为神经 embedding（见开发规划③）。
+RAG_MAX_DISTANCE = float(os.environ.get("RAG_MAX_DISTANCE", "0.97"))   # 🟢可变：env 可调
+
+def search_knowledge(question, k=4, max_distance=RAG_MAX_DISTANCE):    # 🟢可变：k=返回几段；max_distance=相关性阈值
     # ① 把“问题文字”变成向量（用同一个 vectorizer，与建库时完全一致）
     #   • [question] 🔴固定要加方括号：transform 接收的是“一批文本”，哪怕只查一句也得装成列表
     #   • .toarray() 🔴把稀疏矩阵转成普通数组；.tolist() 🔴转成 Python 列表，chromadb 才认
     q_vec = vectorizer.transform([question]).toarray().tolist()   # 🔴固定写法
 
-    # ② 拿向量去向量库查最相似的 k 段
+    # ② 拿向量去向量库查最相似的 k 段（同时取回 distances 用于相关性过滤）
     #   • query_embeddings 🔴传向量（不是文字）；n_results=k 🟢控制返回几段
     res = collection.query(query_embeddings=q_vec, n_results=k)   # 🔴固定写法
+    docs = res["documents"][0]                       # 🔴docs[0] 才是那批文字
+    dists = (res.get("distances") or [[None] * len(docs)])[0]   # 🔴每段的余弦距离（越小越相关）
 
-    # ③ 返回 (原文, 编号) 列表 —— 给前端展示“引用来源”做准备
-    docs_with_id = []                            # 🟢新：存 [(原文,编号), ...]
-    for i, doc in enumerate(res["documents"][0]): # 🔴docs[0] 才是那段文字
-        # 🔴关键步骤：给每段知识加编号（如「[1] 常见问答（FAQ） 问：林小禾接私活吗？答：接...」）
-        docs_with_id.append((f"[{i+1}] {doc}", i+1))   # 🟢格式可改：「[{编号}] 原文」
-    return docs_with_id          # 🔴现在返回的不是纯文本列表，而是 (文本,编号) 对
+    # ③ 【相关性过滤】距离过大的直接丢弃；过滤后按顺序重新编号，
+    #    保证发给 AI 的 [1][2] 与返回给前端的引用一一对应
+    hits = []                                        # 🟢存 {编号, 给AI看的带号原文, 原文片段, 距离}
+    for doc, dist in zip(docs, dists):
+        if dist is not None and dist >= max_distance:   # 距离≥阈值=基本无关 → 丢
+            continue
+        idx = len(hits) + 1                          # 重新编号（1,2,3...）
+        hits.append({
+            "id": idx,
+            "display": f"[{idx}] {doc}",             # 🟢给 AI 看（带编号，引导它引用 [1][2]）
+            "snippet": doc,                          # 🟢给前端点击展开时显示的原文
+            "distance": dist,
+        })
+    return hits          # 🔴返回结构化命中列表（可能为空=没检索到相关资料）
 
 
 # ------------------------------------------------------------
@@ -171,23 +189,33 @@ def chat():
             last_question = msg.get("content", "")
             break
 
-    docs_with_id = []                                  # 🟢新：收集 (原文,编号)
+    hits = []                                          # 🟢新：结构化命中列表
     if last_question:
-        docs_with_id = search_knowledge(last_question)   # 🔴现在是 [(「[1] 原文」,1), ...]
+        hits = search_knowledge(last_question)         # 🔴已含相关性过滤，可能为空
 
     # ① 拼纯文本的知识内容（给 AI 看，让它引用 [1][2]）
-    knowledge_lines = [text for text, _id in docs_with_id]   # 🟢只取纯文本
-    knowledge_text = "\n\n".join(knowledge_lines)             # 🔴拼接成一大段
+    knowledge_text = "\n\n".join(h["display"] for h in hits)   # 🔴拼接成一大段
 
-    # ② 再返回编号列表（前端显示“引用来源”时用）
-    cited_ids = [_id for _, _id in docs_with_id]       # 🟢新：[1, 2]
-    
-    # (3) 【注入 Prompt】把检索到的资料塞进 system 人设，让 AI 照着资料答
-    system_content = (
-        SYSTEM_PROMPT
-        + "\n\n以下是你掌握的【林小禾相关资料】，回答时优先依据它们，若资料里没有就如实告知：\n"
-        + knowledge_text
-    )   # 🟢可变：这段提示词可以改措辞
+    # ② 【引用 payload】带上原文片段（截断到 120 字），供前端点击展开
+    cited_payload = [
+        {"id": h["id"], "text": h["snippet"][:120] + ("…" if len(h["snippet"]) > 120 else "")}
+        for h in hits
+    ]
+
+    # (3) 【注入 Prompt】把检索到的资料塞进 system 人设；若零命中则明确告知没资料
+    if knowledge_text:
+        system_content = (
+            SYSTEM_PROMPT
+            + "\n\n以下是你掌握的【林小禾相关资料】，回答时优先依据它们，若资料里没有就如实告知：\n"
+            + knowledge_text
+        )   # 🟢可变：这段提示词可以改措辞
+    else:
+        # 没检索到相关资料（问题与林小禾无关，或距离都超阈值）：不硬塞资料，避免编造
+        system_content = (
+            SYSTEM_PROMPT
+            + "\n\n（本次没有检索到与问题相关的林小禾资料。若问题与林小禾无关，请友好简洁地回应；"
+            + "若涉及林小禾的具体事实而你不确定，请如实说明不了解，不要编造。）"
+        )
 
     # (4) 把 system 人设（已注入资料）放最前面，拼上前端传来的对话历史
     messages = [{"role": "system", "content": system_content}] + history
@@ -212,8 +240,9 @@ def chat():
             print("调用大模型出错：", e)   # 🔴打到后端控制台，方便你排查真正原因
             yield "\n[抱歉，AI 暂时无法回答，请稍后再试]"   # 🟢可改提示语
         finally:
-            # ★引用来源：流式结束后发给前端显示「参考了 [1][2]」
-            yield "\n__REF__:" + ",".join(map(str, cited_ids)) if cited_ids else ""
+            # ★引用来源：流式结束后发送 JSON（编号+原文片段），前端据此做可点击展开的引用
+            if cited_payload:
+                yield "\n__REF__:" + json.dumps(cited_payload, ensure_ascii=False)
 
 
     # (6) 用 Response 包住生成器 = 流式响应

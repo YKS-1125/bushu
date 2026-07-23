@@ -1031,6 +1031,30 @@
     }
     .citation a { color: var(--primary-deep); border-bottom: 1px dotted var(--primary-deep); }
 
+/* ★可点击展开的引用来源 */
+    .cite-chip {
+      font: inherit; font-size: var(--fs-meta);
+      color: var(--primary-deep);
+      background: none;
+      border: 1px dotted var(--primary-deep);
+      border-radius: 4px;
+      padding: 0 5px; margin: 0 2px;
+      cursor: pointer; line-height: 1.5;
+      transition: background .15s, color .15s;
+    }
+    .cite-chip:hover, .cite-chip[aria-expanded="true"] {
+      background: var(--primary-deep); color: #fff;
+    }
+    .cite-detail {
+      margin-top: var(--gap-xs);
+      padding: var(--gap-xs) var(--gap-sm);
+      border-left: 2px solid var(--primary-deep);
+      background: rgba(127,127,127,.12);   /* 主题无关的中性背景，深浅色都可读 */
+      border-radius: 4px;
+      white-space: pre-wrap;
+      color: var(--muted);
+    }
+
     .chat-input-row {
       display: flex; gap: var(--gap-xs);
       padding: var(--gap-sm); border-top: 1px solid var(--border);
@@ -1724,6 +1748,39 @@
       el.innerHTML = marked.parse(clean);                  // 🔴Markdown → HTML
     }
 
+    // ★渲染可点击展开的引用来源："参考了：[1] [2]"，点任一小片展开它引用的原文
+    //   citations = [{id, text}, ...]；text 已在后端截断到 120 字
+    function renderCitations(container, citations) {
+      const box = document.createElement('div');
+      box.className = 'citation';
+      box.appendChild(document.createTextNode('参考了：'));
+      const detail = document.createElement('div');        // 共用一个展开区，显示当前点击的那条
+      detail.className = 'cite-detail';
+      detail.hidden = true;
+      citations.forEach(c => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'cite-chip';
+        chip.textContent = '[' + c.id + ']';
+        chip.setAttribute('aria-expanded', 'false');
+        chip.addEventListener('click', () => {
+          const isOpen = detail.dataset.cur === String(c.id) && !detail.hidden;
+          // 先把所有小片置为未展开
+          box.querySelectorAll('.cite-chip').forEach(b => b.setAttribute('aria-expanded', 'false'));
+          if (isOpen) {                                    // 再次点同一条 = 收起
+            detail.hidden = true; detail.dataset.cur = '';
+          } else {                                         // 展开该条原文
+            detail.textContent = '[' + c.id + '] ' + c.text;
+            detail.hidden = false; detail.dataset.cur = String(c.id);
+            chip.setAttribute('aria-expanded', 'true');
+          }
+        });
+        box.appendChild(chip);
+      });
+      box.appendChild(detail);
+      container.appendChild(box);
+    }
+
     // 页面加载时，把从 localStorage 读回的历史重新画成气泡（刷新后能看见上次对话）
     // role 是 'user' 就画成用户气泡，否则（assistant）画成 ai 气泡
     history.forEach(msg => {
@@ -1763,7 +1820,7 @@
       abortController = new AbortController();              // A2：新建中断控制器
       setStreaming(true);
       let answer = '';                                     // 🟢拼完整答案
-      let cited_ids = [];                                  // 🟢存放引用的 [1][2]...
+      let citations = [];                                  // 🟢存引用来源 [{id, text}, ...]
 
       try {
         // fetch：浏览器向后端发 HTTP POST 请求
@@ -1786,32 +1843,27 @@
           const delta = decoder.decode(value);           // 🔴这块字节转成文字（相当于你的 delta）
           loading.textContent += delta;                  // 🟢立即追加显示（逐字冒字）
           answer += delta;                               // 🟢拼进完整答案
-        
-          // ★引用来源解析：看到 '__REF__' 就提取后面的数字
-          if (delta.includes('__REF__:')) {
-            const ref_part = delta.split('__REF__:')[1];    // 🔴取出 "1,2..."
-            cited_ids = ref_part.split(',').map(s=>+s);     // 🟢转成数字数组 [1,2]
-          }
-        
+
           body.scrollTop = body.scrollHeight;            // 🟢每次滚到底部
         }
         // ↑↑↑ 练手结束 ↑↑↑
 
         // 循环结束 = 整段回答收完
+        // ★引用来源解析：从完整答案尾部取出 __REF__ 后的 JSON（比逐块解析更稳，避免标记被切断）
+        const refIdx = answer.indexOf('__REF__:');
+        if (refIdx !== -1) {
+          try { citations = JSON.parse(answer.slice(refIdx + '__REF__:'.length).trim()); }
+          catch (_) { citations = []; }                     // 解析失败就当没引用，不报错
+        }
         // A1：流式过程中是纯文本逐字冒，收完后一次性渲染成 Markdown 富文本
-        renderMarkdown(loading, answer);                     // 🟢把气泡内容换成富文本
+        renderMarkdown(loading, answer);                     // 🟢把气泡内容换成富文本（内部会剔除 __REF__ 标记）
         const cleanAnswer = answer.split('__REF__:')[0].trimEnd();  // 存历史也去掉引用标记
         history.push({ role: 'assistant', content: cleanAnswer }); // 🔴完整答案存历史
         saveHistory();                                       // 🔴立即落盘
 
-        // ★引用来源显示：如果检索到了资料编号，就在答案底部加一行小字「参考了 [1][2]」
-        if (cited_ids.length > 0) {
-          // 🔴新建一个 div 元素专门放引用小字
-          const citationEl = document.createElement('div');      // 🔴创建 div
-          citationEl.className = 'citation';                    // 🟢应用我们之前加的 CSS 引用样式类
-          // 🟢生成文本"参考了：[1] [2]"；map(n=>'['+n+']')=[1],[2]... 再用 join 串起来
-          citationEl.textContent = '参考了：' + cited_ids.map(n => '['+n+']').join(' ');  // 🟢如"参考了：[1] [2]"
-          loading.appendChild(citationEl);                      // 🔴塞进同一个气泡容器（让 AI 消息下面紧跟着小字）
+        // ★引用来源显示：提供可点击的 [1][2] 小片，点击展开看引用的原文
+        if (citations.length > 0) {
+          renderCitations(loading, citations);
         }
       } catch (e) {
         loading.classList.remove('loading');
