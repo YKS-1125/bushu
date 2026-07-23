@@ -254,6 +254,31 @@ def chat():
 # 4. 启动服务器（跑在本机 5000 端口）
 # ------------------------------------------------------------
 if __name__ == "__main__":             # 🔴固定：Python 的"程序入口"写法
+    # ------------------------------------------------------------
+    # 【本地专用·闲置自动关闭】默认半小时无人访问，就自动关掉本地服务器。
+    #   · 只在“python app.py”本地开发时生效；正式部署走 gunicorn（见 Dockerfile），
+    #     根本不进这个 __main__ 分支 → 线上服务器永远不会被自动关掉。
+    #   · “访问”= 收到任何 HTTP 请求（打开网页 / 发消息都算），每次都会重置计时。
+    #   · 改时长：设环境变量 DEV_IDLE_SHUTDOWN_MIN（单位分钟）；设为 0 可关闭本功能。
+    # ------------------------------------------------------------
+    import threading                    # 🔴本地专用，放这里避免影响生产依赖
+    _IDLE_MIN = float(os.environ.get("DEV_IDLE_SHUTDOWN_MIN", "30"))   # 🟢默认 30 分钟
+    if _IDLE_MIN > 0:
+        _last_seen = [time.time()]      # 用列表装，闭包里好修改
+        def _mark_active():             # 每收到一次请求，刷新“最后访问时刻”
+            _last_seen[0] = time.time()
+        app.before_request(_mark_active)
+
+        def _idle_watchdog():           # 后台看门狗：每分钟查一次闲置时长
+            while True:
+                time.sleep(60)
+                idle = time.time() - _last_seen[0]
+                if idle >= _IDLE_MIN * 60:
+                    print(f"[闲置自动关闭] 已 {int(idle // 60)} 分钟无人访问，关闭本地服务器。")
+                    os._exit(0)         # 直接结束进程（本地无 reloader，安全）
+        threading.Thread(target=_idle_watchdog, daemon=True).start()
+        print(f"[闲置自动关闭] 已启用：{_IDLE_MIN:.0f} 分钟无访问即自动关闭（仅本地；gunicorn 部署不受影响）。")
+
     # debug=True：改代码自动重启，报错显示详情，方便开发
     # 部署时不要 set True，避免泄露细节
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))     # 🟢可变：允许外部访问
